@@ -92,6 +92,8 @@ char            directory[] = "DCIM/CANON999", // Emulate Canon folder layout
 byte            sleepPos; // Current "throb" table position
 int             imgNum      = 0;
 const int       minFileSize = 20 * 1024; // Eye-Fi requires minimum file size
+uint32_t        nextPictureTime = 0; // unix time at which to take next picture
+const int       nextPictureInterval = 300; // seconds between pictures
 
 // -------------------------------------------------------------------------
 
@@ -119,7 +121,7 @@ void setup() {
   if(!cam.begin())       error(1000); // Init camera; error = slow flash
 
   // Un-comment this line if using an Eye-Fi X2 card:
-  // SD.enableCRC(true);
+  SD.enableCRC(true);
 
   // Create image directory if not already present; error = solid red
   if(!SD.exists(directory) && !SD.mkdir(directory)) error(1);
@@ -142,22 +144,24 @@ void loop() {
   TIMSK1  |= _BV(TOIE1);         // Enable Timer1 interrupt for throb
   nextFilename();                // Scan directory for next name
   cam.resumeVideo();             // Enable composite live output
-  cam.setMotionDetect(true);     // Enable motion detection
-  while(!cam.motionDetected());  // Wait for motion trigger ... ... ...
+  
+  if (nextPictureTime == 0) {
+    // wait until start of next minute to take first picture
+    while(clock.now().minute() != 0);
+  } else {
+    // wait until next specified time to take next picture
+    while(clock.now().unixtime() < nextPictureTime);
+  }
 
-  // Motion detected!
-  cam.setMotionDetect(false);    // Turn it off while we work 
   TIMSK1 &= ~_BV(TOIE1);         // And stop the pulsing LED
   digitalWrite(GREEN_LED, HIGH); // Just show solid green
-
-  delay(500); // Pause half a sec between motion sense & capture
  
   if(!cam.takePicture()) {
     // Failed to take picture.  Show RED (+GREEN above) for 5 sec:
     digitalWrite(RED_LED, HIGH);
     delay(5000);
     digitalWrite(RED_LED, LOW);
-    return; // Resume motion detection
+    return;
   }
 
   File imgFile = SD.open(filename, FILE_WRITE);
@@ -167,7 +171,7 @@ void loop() {
     digitalWrite(RED_LED  , HIGH);
     delay(5000);
     digitalWrite(RED_LED  , LOW);
-    return; // Resume motion detection
+    return;
   }
 
   uint16_t jpegLen = cam.frameLength();
@@ -193,6 +197,9 @@ void loop() {
   }
 
   imgFile.close();
+  
+  // set next time to wait until
+  nextPictureTime = clock.now().unixtime() + nextPictureInterval;
 }
 
 
@@ -221,14 +228,23 @@ void nextFilename(void) {
   // Start of image # is at pos            ^ 18
   // If you decide to change the path or name, the index into
   // filename[] will need to be changed to suit.
+  
+  int num;
+  
   for(;;) {
-    // Screwy things will happen if over 10,000 images in folder.
+    // After 10,000 images first digit will continue with A-Z.
     // As explained above, this is not industrial-grade code.  It's
     // expecting other limits (e.g. FAT16 stuff) will be hit first.
 
     // sprintf() is a costly function to invoke (about 2K of code),
     // so this instead assembles the filename manually:
-    filename[18] = '0' +  imgNum / 1000;
+    num = imgNum / 1000;
+    
+    if (num > 9) {
+      filename[18] = 'A' +  num;
+    } else {
+      filename[18] = '0' +  num;
+    }
     filename[19] = '0' + (imgNum /  100) % 10;
     filename[20] = '0' + (imgNum /   10) % 10;
     filename[21] = '0' +  imgNum         % 10;
