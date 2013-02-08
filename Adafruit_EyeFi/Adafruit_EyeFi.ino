@@ -241,9 +241,9 @@ void nextFilename(void) {
     num = imgNum / 1000;
     
     if (num > 9) {
-      filename[18] = 'A' +  num;
+      filename[18] = 'A' + (num - 10);
     } else {
-      filename[18] = '0' +  num;
+      filename[18] = '0' + num;
     }
     filename[19] = '0' + (imgNum /  100) % 10;
     filename[20] = '0' + (imgNum /   10) % 10;
